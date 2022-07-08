@@ -1,0 +1,146 @@
+version: "3"
+services:
+  proxy:
+    image: 'jc21/nginx-proxy-manager:latest'
+    container_name: proxy
+    restart: unless-stopped
+    ports:
+      - '80:80' # Public HTTP Port
+      - '443:443' # Public HTTPS Port
+      - '81:81' # Admin Web Port
+      # Add any other Stream port you want to expose
+      # - '21:21' # FTP
+      - '13306:13306'
+      - '15432:15432'
+    networks:
+      - proxy-network
+    environment:
+      FORCE_COLOR: 1
+      # DB_SQLITE_FILE: "/data/database.sqlite"
+      # DISABLE_IPV6: "true"
+      # X_FRAME_OPTIONS: "sameorigin"
+    volumes:
+      - letsencrypt_data:/etc/letsencrypt
+      - ./data/nginx:/data
+      - ./log/nginx:/var/log/nginx
+    healthcheck:
+      test: ["CMD", "/bin/check-health"]
+      interval: 10s
+      timeout: 3s
+    depends_on:
+      - uptime-kuma
+      - errorpage
+      - goaccess
+      - whoami
+      - mysqldb
+      - postgresdb
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:alpine
+    container_name: uptime-kuma
+    volumes:
+      - uptime_data:/app/data
+    expose:
+      - 3001
+    # ports:
+    #   - 82:3001
+    networks:
+      - proxy-network
+    restart: always
+
+  errorpage:
+    image: tarampampam/error-pages
+    container_name: errorpage
+    restart: always
+    expose:
+      - 8080
+    # ports:
+    #   - 83:8080
+    environment:
+      TEMPLATE_NAME: connection
+      SHOW_DETAILS: true
+    networks:
+      - proxy-network
+
+  goaccess:
+    image: xavierh/goaccess-for-nginxproxymanager
+    container_name: goaccess
+    restart: always
+    volumes:
+      - ./data/nginx/logs:/opt/log
+      - goaccess_report:/srv/report
+    ports:
+      - '84:7880'
+    environment:
+      - PUID=0
+      - PGID=0
+      - TZ=Asia/Bangkok
+      - SKIP_ARCHIVED_LOGS=False
+      - DEBUG=False
+      - BASIC_AUTH=False
+      - BASIC_AUTH_USERNAME=phoubon
+      - BASIC_AUTH_PASSWORD=phoubon@0022*
+
+  # goaccess:
+  #   image: gregyankovoy/goaccess
+  #   container_name: goaccess
+  #   restart: always
+  #   expose:
+  #     - 7889
+  #   # ports:
+  #   #   - '84:7889'
+  #   volumes:
+  #       - ./data/nginx/logs:/opt/log
+  #       - ./config/goaccess:/config
+  #       - goaccess_report:/srv/report
+  #   networks:
+  #     - proxy-network
+
+  whoami:
+    image: 'traefik/whoami'
+    container_name: whoami
+    expose:
+      - 80
+    # ports:
+    #   - 85:80
+    networks:
+      - proxy-network
+
+  mysqldb:
+    image: mysql
+    command: --default-authentication-plugin=mysql_native_password
+    container_name: mysqldb
+    restart: always
+    expose:
+      - 3306
+    # ports:
+    #   - '13306:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+    networks:
+      - proxy-network
+
+  postgresdb:
+    image: postgres:alpine
+    container_name: postgresdb
+    restart: always
+    ports:
+      - '5432'
+    # ports:
+    #   - '15432:5432'
+    environment:
+      POSTGRES_PASSWORD: example
+    networks:
+      - proxy-network
+
+volumes:
+  letsencrypt_data:
+    name: letsencrypt
+  uptime_data:
+    name: uptime_data
+  goaccess_report:
+    name: goaccess_report
+
+networks:
+  proxy-network:
+    name: proxy-network
